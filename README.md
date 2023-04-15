@@ -84,4 +84,4 @@ Atunci cand se va arunca un pachet, vom trimite un mesaj expeditorului. In cadru
     - Atunci cand router-ul primeste acest mesaj, el trebuie sa trimita un Echo Reply cu ```type 0, code 0```. Insa, in noul pachet, trebuie adaugate noi informatii (in ```buffer_icmp```, liniile 42-45); routerul trebuie să se asigure că  avem aceste valori în pachetul de tip "Echo reply”
     
 
-### Toate cerintele sunt imprementare, punctajul pe checker-ul local fiind 100 de puncte.
+### Toate cerintele sunt implementate, punctajul pe checker-ul local fiind de 100 de puncte.
