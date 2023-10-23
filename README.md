@@ -1,40 +1,39 @@
-# Tema 1 PCom - Dataplane Router
+# Communication Protocols Homework NO. 1 - Dataplane Router
 
-### Ioan Teodorescu - 323CB
+The project consists of implementing a **dataplane for a router**, which involves understanding and applying routing and packet analysis concepts. A router can have multiple interfaces and can receive packets on any of them, process them, and forward them to other **directly connected devices**. The project has been implemented in C.
 
-Tema consta in implementarea **dataplane-ului unui router**, ce presupune înțelegerea și aplicarea conceptelor de rutare și de analiză a pachetelor. Un router poate avea mai multe interfețe și poate recepționa pachete pe oricare dintre acestea, să le prelucreze și să le trimită mai departe catre alte dispozitive **direct conectate**. Tema a fost implementată in C.
+## Requirements
 
-## Cerinte
+1. **Routing Process**
 
-1. **Procesul de dirijare** 
+   Involves receiving a data packet, analyzing it, and selecting the best HOP to transmit the packet to its destination. I will discuss the routing process when we receive an **IPv4** packet.
 
-Presupune primirea pachetului de date, analizarea acestuia si selectarea celui mai bun HOP pentru a transmite acheful către destinație. Voi discuta procesul de dirijare atunci când vom primi un pachet de tip **IPv4**.
+   To begin, once we receive the packet, the variable `buf` is converted into a pointer to the *ether_header* structure so that the header information can be analyzed. We check whether the upper-layer protocol encapsulated in the Ethernet header is of type IP. If so, the IP and ICMP headers are extracted from the packet (used later).
 
-Pentru inceput, odata ce am primit pachetul, variabila ```buf``` este convertită într-un pointer la structura *ether_header,* astfel încât informațiile din antet să pot fie analizate. Se verifica daca protocolul superior care este incapsulat in header-ul de Ethernet este unul de tip IP. În caz afirmativ, se extrage din pachet header-ul pentru IP si ICMP (este folosit mai tarziu). 
+   We start by checking the correctness of the checksum. We store the checksum value and recalculate it using the checksum function provided [calling ntohs to convert the value from network format (big-endian) to host format (little-endian)]. If the checksum in the header is different from the newly calculated checksum, it means that the packet has been altered and should be discarded.
 
-Voi incepe prin verificarea corectitudinii sumei de control. Se memoreaza valoarea checksum-ului si se recalculeaza, folosind functia checksum din cadrul API-ului pus la dispoziție [apelez ntohs pentru a converti valoarea din formatul retelei (big-endian) in formatul gazda (little-endian)]. Daca suma din header e diferita fata de cea nou calculata, asta inseamna ca pachetul a suferit modificari si trebuie aruncat. 
+   Next, we look for the next hop. We call `trie_lookup`, which aims to traverse the trie search tree, returning a pointer to a `route_table_entry` structure containing information about the next hop. If `nhop` is NULL, then no hop has been found, and we send back an ICMP message to the packet source with "Destination unreachable" (type = 3, code = 0).
 
-Apoi, urmeaza cautarea urmatorului hop. Se apeleaza ```trie_lookup``` ce are ca scop parcurgerea arborelui de cautare de tip trie, returnand un pointer la o structura ```route_table_entry```, ce ar trebuii sa contina informatiile despre next hop. Daca nhop e NULL, atunci nu a fost gasit un hop, se va trimite inapoi catre sursa pachetului un mesaj ICMP de tip "Destination unreachable” (type = 3, code = 0).
+   The next step is to check and update the TTL (Time To Live). If it is less than or equal to 1, the packet has no more life left and should be discarded. Additionally, an ICMP message of "Time Exceeded" (type = 11, code = 0) is sent back to the source.
 
-Urmatorul pas consta in verificarea si actualizarea TTL-ului. Daca e mai mic sau egal decat 1, pachetul nu mai are timp de viata si trebuie aruncat. De asemenea, se va trimite catre sursa un mesaj ICMP de tip “Time Exceeded” (type = 11, code = 0).
+   At this point, we can modify the TTL and checksum (due to TTL).
 
-In acest moment, putem modifica valoarea TTL-ului si checksum-ului (din cauza lui TTL)
+   The router needs to send the packet, but it does not know the MAC address of the next hop. Here, the ARP (Address Resolution Protocol) comes to the rescue. We call `get_arp_entry` and search the ARP cache for an entry with the IP address of the next hop. If there is no entry, and the returned variable is NULL, an ARP Request is generated.
 
-Router-ul trebuie sa trimită pachetul, insă acesta nu stie adresa MAC a urmatorului hop. Aici vine in ajutor Protocolul ARP. Se apeleaza get_arp_entry si cauta in cache-ul ARP daca exista vreo intrare care are adresa IP a urmatorului hop. Daca nu exista o intrare si variabila returnata e NULL, se va genera un ARP Request. 
+   If all conditions are met (correct checksum, TTL > 1, a next hop, and its MAC address), we need to update the Ethernet header (put the MAC address of the router's interface as the source, and the MAC address of the next hop as the destination) and send the packet.
 
-Daca toate conditiile sunt indeplinite (avem checksum corect, ttl > 1, un urmator hop si adresa MAC a acestuia), trebuie sa actualizam header-ul de Ethernet (la sursa, punem adresa MAC a interfetei router-ului; la destinatie, adresa MAC a urmatorului hop) si se trimite pachetul 
+1. **Efficient Longest Prefix Match**
 
-1. **Longest Prefix Match eficient**
-- Este implementat in ```trie.h``` si ```trie.c```. In ```main()```, se initializeaza un nod root si se vor adauga intrarile din fisier in trie.
+   This is implemented in `trie.h` and `trie.c`. In `main()`, a root node is initialized, and entries from a file are added to the trie.
 
-Structura: 
+   Structure:
 
-```c
-struct trie_node {
-    struct trie_node * children[2];
-    struct route_table_entry * entry;
-};
-```
+   ```c
+   struct trie_node {
+       struct trie_node * children[2];
+       struct route_table_entry * entry;
+   };
+   ```
 
 1. ```trie_create()```
     - aloca memorie pentru un nou nod si il returneaza.
