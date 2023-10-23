@@ -36,51 +36,49 @@ The project consists of implementing a **dataplane for a router**, which involve
    ```
 
 1. ```trie_create()```
-    - aloca memorie pentru un nou nod si il returneaza.
+    - Allocates memory for a new node and returns it.
 2. ```mask_length()```
-    - calculeaza numărul de biți setați consecutiv a unei masti, incepand cu cel mai semnificativ bit.
+    - Calculates the number of consecutive set bits in a mask, starting with the most significant bit.
 3. ```read_trie(const char * path, struct trie_node * root)```
-    - deschide fisierul si citeste fiecare intrare de router (functia are la baza read_rtable din lib.c)
-    - se adauga datele intrarii intr-un entry, care mai apoi este adaugat in trie
-    - se returneaza numarul de noduri.
+    - Opens the file and reads each router entry (the function is based on read_rtable from lib.c).
+    - Adds the input data in an entry, which is later added in the trie
+    - Returns the number of nodes
 4. ```void trie_insert(struct trie_node * root, struct route_table_entry * entry)```
-    - adauga nodurile in trie
-    - se ia prefixul si se calculeaza lungimea mastii (schimbam de la network order la host order)
-    - se parcurge in functie de lungimea mastii (ceea ce este dupa sirul de biti setati consecutivi, nu mai conteaza..)
-    - se incepe de la cel mai semnificativ (dreapta → stanga in little endian)
-    - parcurge arborele trie și adaugă un nou nod în cazul în care nu există un nod corespunzător bitului curent din prefix.
-    - la final, in ultimul nod este adaugat entry-ul.
-5. ```struct route_table_entry * trie_lookup(struct trie_node * root, uint32_t destination)```
-    - parcurgerea se incepe de la cel mai semnificativ bit (acelasi caz ca si mai sus)
-    - daca nodul corespunzator bitului e null, inseamna ca am terminat de parcurs arborele in functie de bitii adresei destinatie (posibil sa avem un rezultat sau nu).
-    - daca nu e null, entry-ul din nodul respectiv se adauga in rezultat
-    - se trece la urmatorul nod
+    - Adds the nodes into the trie.
+    - Takes the prefix and calculates the mask length (changing from network order to host order).
+    - Traverses based on the mask length (what comes after the consecutive set bits in the mask doesn't matter).
+    - Starts from the most significant bit (right to left in little-endian).
+    - Traverses the trie and adds a new node if there is no node corresponding to the current bit in the prefix.
+    - The entry is added to the last node.
 
-3. **Protocolul ARP**
+5. `struct route_table_entry * trie_lookup(struct trie_node * root, uint32_t destination)`
+   - Traversal starts from the most significant bit (the same case as above).
+   - If the node corresponding to the bit is null, it means that the tree has been traversed based on the destination address bits (we may or may not have a result).
+   - If it's not null, the entry from that node is added to the result.
+   - Move on to the next node.
 
-Atunci cand analizam pachetul de tip IPv4, se cauta in cache-ul ARP-ului si daca nu gasim un arp entry, trebuie sa generam un ARP Request. Mai intai, pachetul este memorat intr-o coada si va fi trimis mai tarziu. Adresa hardware a sursei (MAC) va fi adresa interfeței routerului către next hop, iar pentru destinatie, adresa va fi cea de Broadcast. Functia ```buffer_arp``` (din ```protocols.c```) genereaza pachetul care va fi trimis. Vor fi adaugate 2 headere: unul de Ethernet si cel de ARP.
+3. **ARP Protocol**
 
-1. ARP Request
-- Routerul primeste un pachet si verifica ```ether_type``` e cel de ARP. Daca da, verifica ```opcode-ul``` header-ului de ARP (1 - Request; 2 - Reply). Din moment ce am primit un request, in header-ul de Ethernet, pun adresa sursa in adresa destinatie, deoarece pachetul trebuie trimis prin aceeasi interfata de retea. Se afla adresa MAC a interfetei utilizate si se copiaza in adresa sursa.
-- Adresa IP destinatar (```arp_hdr → tpa```) este setata la adresa ip sursa (```arp_hdr → spa```). Iar spa o sa aiba adresa IP a interfetei utilizate. Se va crea un nou buffer pentru ARP reply, care va fi trimis
+   When analyzing an IPv4 packet, we look in the ARP cache, and if we don't find an ARP entry, we need to generate an ARP Request. First, the packet is stored in a queue and will be sent later. The hardware address (MAC) of the source is set to the router's interface address for the next hop, and the destination address is set to the broadcast address. The `buffer_arp` function (in `protocols.c`) generates the packet that will be sent. Two headers are added: one for Ethernet and one for ARP.
 
-b. ARP Reply
+   1. ARP Request
+      - The router receives a packet and checks if `ether_type` is an ARP type. If so, it checks the `opcode` in the ARP header (1 - Request; 2 - Reply). Since we received a request, the source address in the Ethernet header is set as the destination address because the packet needs to be sent through the same network interface. The MAC address of the interface used is obtained and copied to the source address.
+      - The recipient's IP address (`arp_hdr → tpa`) is set to the source IP address (`arp_hdr → spa`). And `spa` will have the IP address of the used interface. A new buffer for the ARP reply is created, which will be sent.
 
-- Din moment ce am primit un reply, adresele IP si MAC ale sursei vor fi salvate in cache-ul ARP, pentru a fi folosite ulterior. Apoi, se va parcurge coada cu pachetele aflate in asteptare, deoarece nu a fost gasit un ```arp_entry``` pentru ele. Se ia varful cozii si se foloseste functia ```get_arp_entry```. Daca nici acum nu avem un ```entry```, se adauga inapoi in coada. Altfel, headerul Ethernet este modificat astfel: la ```shost```, este pusa adresa interfetei curente, si la ```dhost```, adresa MAC a entry-ului care era cautat de la bun inceput. Se trimite inapoi pachetul pentru analizare.
-1. **Protocolul ICMP**
+   2. ARP Reply
+      - Since we received a reply, the source's IP and MAC addresses are saved in the ARP cache for later use. Then, the queue of pending packets is traversed because no `arp_entry` was found for them. The top of the queue is taken, and the `get_arp_entry` function is used. If there is still no entry, it is added back to the queue. Otherwise, the Ethernet header is modified with the current interface's address for `shost` and the MAC address of the entry sought from the beginning for `dhost`. The packet is sent back for analysis.
 
-Atunci cand se va arunca un pachet, vom trimite un mesaj expeditorului. In cadrul temei, tratam 2 cazuri. 
+1. **ICMP Protocol**
 
-1. **Destination unreachable (type 3, code 0)** 
-    - Se trimite atunci cand nu exista ruta catre destinatie, mai exact, dupa executarea functiei trie_lookup, nu avem nicio ruta. Functia ```buffer_icmp``` din ```protocols.c``` va crea un pachet specific protocolului. Se vor initializa headere noi pentru fiecare protocol, unde vor fi transportate datele. Pentru Ethernet, se face swap intre adresele sursa si destinatie (destinatia trebuie sa-i trimita sursei mesajul de eroare). Pentru ICMP, se adauga tipul si codul erorii si se va calcula suma de control. Pentru IP, setam parametrii (swap intre ```saddr```, ```daddr```; adaugam tipul de protocol encapsulat de headerul IP) si calculam checksum. Toate aceste headere sunt puse mai apoi in buffer si odata returnat, va fi trimis.
-    
-    b. **Time exceeded (type 11, code 0)**
-    
-    - Se trimite atunci cand durata de viata a TTL-ului a expirat. Se trateaza asemenator ca situatia de sus, doar la type si code sunt puse numerele 11, respectiv 0
-    
-    c. **ICMP Echo Request (type 8, code 0)**
-    
-    - Atunci cand router-ul primeste acest mesaj, el trebuie sa trimita un Echo Reply cu ```type 0, code 0```. Insa, in noul pachet, trebuie adaugate noi informatii (in ```buffer_icmp```, liniile 42-45); routerul trebuie să se asigure că  avem aceste valori în pachetul de tip "Echo reply”
-    
+   When a packet is discarded, a message will be sent to the sender. Within this project, two cases are handled.
 
-### Toate cerintele sunt imprementare, punctajul pe checker-ul local fiind 100 de puncte.
+   1. **Destination Unreachable (type 3, code 0)**
+      - Sent when there is no route to the destination, specifically after executing the `trie_lookup` function and not finding any route. The `buffer_icmp` function in `protocols.c` creates a specific ICMP protocol packet. New headers are initialized for each protocol, carrying the data. For Ethernet, the source and destination addresses are swapped (the destination must send an error message to the source). For ICMP, the error type and code are added, and the checksum is calculated. For IP, parameters are set (swapping `saddr`, `daddr`; adding the encapsulated protocol type to the IP header), and the checksum is calculated. All these headers are then placed in a buffer and returned to be sent.
+
+   2. **Time Exceeded (type 11, code 0)**
+      - Sent when the TTL's lifetime has expired. It is treated similarly to the situation above, with type and code set to 11 and 0, respectively.
+
+   3. **ICMP Echo Request (type 8, code 0)**
+      - When the router receives this message, it needs to send an Echo Reply with `type 0, code 0`. However, new information needs to be added to the packet (in `buffer_icmp`, lines 42-45). The router needs to ensure that these values are present in the "Echo reply" packet.
+
+### All requirements are implemented, with a local checker score of 100 points.****
